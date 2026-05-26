@@ -105,15 +105,13 @@ class Assistant:
 
     def _ask_brain_and_respond(self, prompt: str) -> None:
         command_to_run: str | None = None
-        had_error = False
         for delta in self.brain.ask_stream(prompt):
             if delta.error:
-                had_error = True
                 self.synthesizer.say("Связь пропала, попробуй позже.")
                 return
             if delta.sentence:
                 self.synthesizer.say(delta.sentence)
             if delta.done and delta.command:
                 command_to_run = delta.command
-        if command_to_run and not had_error:
+        if command_to_run:
             self.executor.run(command_to_run)

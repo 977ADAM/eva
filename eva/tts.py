@@ -1,7 +1,6 @@
 import logging
 import subprocess
 from pathlib import Path
-from typing import Iterable
 
 log = logging.getLogger(__name__)
 
@@ -42,7 +41,3 @@ class Synthesizer:
             )
         except Exception as exc:
             log.warning("aplay упал: %s", exc)
-
-    def say_stream(self, sentences: Iterable[str]) -> None:
-        for sentence in sentences:
-            self.say(sentence)
