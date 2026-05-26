@@ -1,0 +1,28 @@
+[project]
+name = "eva-assistant"
+version = "0.1.0"
+description = "Голосовой ассистент Eva на Whisper + DeepSeek + Piper"
+requires-python = ">=3.10"
+dependencies = [
+    "faster-whisper>=1.0",
+    "silero-vad>=5.0",
+    "sounddevice>=0.4",
+    "scipy>=1.10",
+    "numpy>=1.24",
+    "openai>=1.0",
+    "torch>=2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-mock"]
+
+[project.scripts]
+eva = "eva.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["eva*"]
+exclude = ["tests*", "piper*", "voices*", "venv*", ".venv*", "docs*"]
