@@ -59,3 +59,75 @@ class AudioCapture:
         if status:
             log.debug("sounddevice status: %s", status)
         self.queue.put(indata.copy().flatten())
+
+
+from typing import Callable, Iterator
+
+
+class SpeechSegmenter:
+    """Читает PCM-блоки из AudioCapture.queue, прогоняет каждый через
+    VAD-callable (возвращает {'start': t} / {'end': t} / None), накапливает
+    речь между start и end, отдаёт каждую готовую фразу как numpy-массив.
+
+    VAD-callable инжектится: в тестах — фейк, в проде — обёртка над
+    silero_vad.VADIterator (см. make_silero_iterator)."""
+
+    def __init__(self, capture: AudioCapture,
+                 vad_iterator: Callable[[np.ndarray], dict | None],
+                 *, min_speech_ms: int = 300, sample_rate: int = 16000):
+        self._capture = capture
+        self._iterator = vad_iterator
+        self._min_speech_samples = int(min_speech_ms / 1000 * sample_rate)
+        self._stop = False
+
+    def stop(self) -> None:
+        self._stop = True
+
+    def segments(self) -> Iterator[np.ndarray]:
+        buffer: list[np.ndarray] = []
+        speaking = False
+
+        while not self._stop:
+            try:
+                chunk = self._capture.queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+
+            event = self._iterator(chunk)
+
+            if event and "start" in event:
+                speaking = True
+                buffer = [chunk]
+            elif event and "end" in event:
+                if speaking:
+                    buffer.append(chunk)
+                    utterance = np.concatenate(buffer)
+                    if len(utterance) >= self._min_speech_samples:
+                        yield utterance
+                buffer = []
+                speaking = False
+            elif speaking:
+                buffer.append(chunk)
+
+
+def make_silero_iterator(*, threshold: float, min_silence_ms: int,
+                         speech_pad_ms: int, sample_rate: int = 16000
+                         ) -> Callable[[np.ndarray], dict | None]:
+    """Фабрика: загружает Silero и возвращает callable, который SpeechSegmenter
+    может вызывать на каждом chunk."""
+    import torch
+    from silero_vad import VADIterator, load_silero_vad
+
+    model = load_silero_vad()
+    raw = VADIterator(
+        model,
+        threshold=threshold,
+        sampling_rate=sample_rate,
+        min_silence_duration_ms=min_silence_ms,
+        speech_pad_ms=speech_pad_ms,
+    )
+
+    def wrapped(chunk: np.ndarray) -> dict | None:
+        return raw(torch.from_numpy(chunk.copy()), return_seconds=False)
+
+    return wrapped
