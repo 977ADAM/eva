@@ -45,6 +45,9 @@ class Config:
     debug: bool = False
     require_wake: bool = True
 
+    # Разговорный режим — сколько секунд после последнего обмена сессия живёт
+    conversation_timeout_sec: float = 60.0
+
     @classmethod
     def load(cls, *, debug: bool = False, require_wake: bool = True,
              whisper_model_name: str = "small") -> "Config":
