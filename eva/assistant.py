@@ -75,7 +75,9 @@ class Assistant:
 
         if any(w in text for w in self._cfg.exit_words):
             self.synthesizer.say("Выключаюсь. Пока!")
-            self.running = False
+            # stop() и флаг и сегментер останавливает — иначе main loop
+            # висит в segments() пока не придёт следующий чанк аудио.
+            self.stop()
             return
 
         if not self.sleeping and any(w in text for w in self._cfg.sleep_words):

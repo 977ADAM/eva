@@ -66,10 +66,12 @@ def make_assistant_with_clock(brain_response=None, *, timeout=60.0):
     return asst, brain, clock
 
 
-def test_exit_word_stops_running():
+def test_exit_word_stops_running_and_segmenter():
     asst, _ = make_assistant()
     asst.handle_text("ева выключись")
     assert asst.running is False
+    # Без segmenter.stop() main loop повиснет в segments() до следующего чанка
+    asst.segmenter.stop.assert_called_once()
 
 
 def test_sleep_word_sets_sleeping():
