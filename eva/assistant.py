@@ -1,4 +1,6 @@
 import logging
+import time
+from typing import Callable
 
 from eva.audio import AudioCapture, SpeechSegmenter
 from eva.brain import Brain
@@ -12,18 +14,21 @@ log = logging.getLogger(__name__)
 
 class Assistant:
     """Главный оркестратор. Связывает все компоненты, держит флаги сессии
-    (`sleeping`, `running`) и реализует логику wake/sleep/exit слов.
+    (`sleeping`, `running`, `conversation_until`) и реализует логику
+    wake/sleep/exit слов плюс разговорный режим.
 
     `run()` крутит главный цикл: получает utterance из segmenter,
     транскрибирует, прогоняет через `handle_text()`.
 
-    `handle_text()` — отдельный метод для возможности unit-тестирования
-    логики без аудио-потока."""
+    `handle_text()` — отдельный метод для unit-тестирования логики
+    без аудио-потока. Источник времени `time_source` инжектится для
+    детерминистских тестов сессии (в проде — `time.monotonic`)."""
 
     def __init__(self, *, config: Config, capture: AudioCapture,
                  segmenter: SpeechSegmenter, transcriber: Transcriber,
                  synthesizer: Synthesizer, brain: Brain,
-                 executor: ShellExecutor):
+                 executor: ShellExecutor,
+                 time_source: Callable[[], float] = time.monotonic):
         self._cfg = config
         self.capture = capture
         self.segmenter = segmenter
@@ -33,6 +38,11 @@ class Assistant:
         self.executor = executor
         self.sleeping = False
         self.running = True
+        # Разговорный режим: timestamp монотонного времени, до которого
+        # сессия активна. None — сессии нет.
+        self.conversation_until: float | None = None
+        self._time_source = time_source
+        self._conversation_timeout = config.conversation_timeout_sec
 
     def run(self) -> None:
         self.synthesizer.say("Ева запущена. Скажи Ева чтобы обратиться.")
@@ -83,19 +93,30 @@ class Assistant:
         if self.sleeping:
             return
 
-        if self._cfg.require_wake:
-            has_wake = any(w in text for w in self._cfg.wake_words)
-            if not has_wake:
-                return
-            clean = self._strip_wake_word(text)
-        else:
-            clean = self._strip_wake_word(text)
+        has_wake = any(w in text for w in self._cfg.wake_words)
+        in_session = self._conversation_active()
 
+        if self._cfg.require_wake and not (has_wake or in_session):
+            return
+
+        clean = self._strip_wake_word(text)
         if not clean:
             self.synthesizer.say("Слушаю.")
             return
 
+        # Продлеваем сессию ОДИН раз за обмен — до вызова Brain.
+        # Так юзер может пробовать снова без wake-word даже если Brain
+        # отдал ошибку.
+        self._extend_conversation()
         self._ask_brain_and_respond(clean)
+
+    def _conversation_active(self) -> bool:
+        if self.conversation_until is None:
+            return False
+        return self._time_source() < self.conversation_until
+
+    def _extend_conversation(self) -> None:
+        self.conversation_until = self._time_source() + self._conversation_timeout
 
     def _strip_wake_word(self, text: str) -> str:
         for w in self._cfg.wake_words:
