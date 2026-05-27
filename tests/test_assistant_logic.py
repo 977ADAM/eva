@@ -232,3 +232,88 @@ def test_brain_error_still_extends_session():
     # Сессия должна быть открыта до t=60 (продление произошло до вызова Brain)
     assert asst.conversation_until is not None
     assert asst.conversation_until == 60.0
+
+
+def test_safe_command_runs_immediately():
+    # firefox в allowlist — должна выполниться без подтверждения
+    asst, _, _ = make_assistant_with_clock(brain_response=[
+        ResponseDelta(sentence="Открываю."),
+        ResponseDelta(command="firefox", done=True),
+    ])
+    asst.handle_text("ева открой firefox")
+    asst.executor.run.assert_called_once_with("firefox")
+    assert asst.pending_command is None
+
+
+def test_unsafe_command_sets_pending_not_runs():
+    # shutdown не в allowlist — не должна выполниться, ставится pending
+    asst, _, _ = make_assistant_with_clock(brain_response=[
+        ResponseDelta(sentence="Сейчас выключу."),
+        ResponseDelta(command="shutdown now", done=True),
+    ])
+    asst.handle_text("ева выключи компьютер")
+    asst.executor.run.assert_not_called()
+    assert asst.pending_command == "shutdown now"
+    # Последняя say-реплика должна быть "Подтверди."
+    last_said = asst.synthesizer.say.call_args_list[-1].args[0]
+    assert last_said == "Подтверди."
+
+
+def test_yes_word_runs_pending():
+    asst, _, _ = make_assistant_with_clock(brain_response=[
+        ResponseDelta(sentence="Удаляю."),
+        ResponseDelta(command="rm -rf /tmp/foo", done=True),
+    ])
+    asst.handle_text("ева удали /tmp/foo")
+    assert asst.pending_command == "rm -rf /tmp/foo"  # ждём подтверждения
+    asst.handle_text("да")
+    asst.executor.run.assert_called_once_with("rm -rf /tmp/foo")
+    assert asst.pending_command is None
+    # После "да" Ева сказала "Хорошо."
+    last_said = asst.synthesizer.say.call_args_list[-1].args[0]
+    assert last_said == "Хорошо."
+
+
+def test_no_word_cancels_pending():
+    asst, _, _ = make_assistant_with_clock(brain_response=[
+        ResponseDelta(sentence="Удаляю."),
+        ResponseDelta(command="rm -rf /tmp/foo", done=True),
+    ])
+    asst.handle_text("ева удали /tmp/foo")
+    asst.handle_text("нет")
+    asst.executor.run.assert_not_called()
+    assert asst.pending_command is None
+    last_said = asst.synthesizer.say.call_args_list[-1].args[0]
+    assert last_said == "Отменено."
+
+
+def test_no_wins_when_both_yes_and_no_present():
+    # «да, отмени» — содержит и yes-word и no-word; no должен победить
+    asst, _, _ = make_assistant_with_clock(brain_response=[
+        ResponseDelta(sentence="Удаляю."),
+        ResponseDelta(command="rm -rf /tmp/foo", done=True),
+    ])
+    asst.handle_text("ева удали /tmp/foo")
+    asst.handle_text("да, отмени")
+    asst.executor.run.assert_not_called()
+    assert asst.pending_command is None
+    last_said = asst.synthesizer.say.call_args_list[-1].args[0]
+    assert last_said == "Отменено."
+
+
+def test_pending_cleared_when_session_expires():
+    # pending живёт только пока сессия активна; после истечения — забывается
+    asst, _, clock = make_assistant_with_clock(
+        timeout=60.0,
+        brain_response=[
+            ResponseDelta(sentence="Удаляю."),
+            ResponseDelta(command="rm -rf /tmp/foo", done=True),
+        ],
+    )
+    asst.handle_text("ева удали /tmp/foo")
+    assert asst.pending_command == "rm -rf /tmp/foo"
+    clock.advance(61)  # сессия истекла
+    asst.handle_text("да")
+    # Команда НЕ выполнена — pending был очищен по истечению сессии
+    asst.executor.run.assert_not_called()
+    assert asst.pending_command is None

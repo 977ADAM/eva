@@ -48,6 +48,23 @@ class Config:
     # Разговорный режим — сколько секунд после последнего обмена сессия живёт
     conversation_timeout_sec: float = 60.0
 
+    # Безопасность shell-команд: allowlist префиксов и слова для подтверждения
+    safe_command_prefixes: tuple[str, ...] = (
+        # Открывалки файлов/папок/URL
+        "xdg-open", "gio",
+        # GUI-приложения
+        "firefox", "chromium", "google-chrome", "code", "nautilus",
+        "gnome-terminal", "vlc", "telegram-desktop", "spotify",
+        # Медиа-контроль и громкость
+        "playerctl", "amixer", "pactl",
+    )
+    confirm_yes_words: tuple[str, ...] = (
+        "да", "ага", "конечно", "подтверждаю", "давай", "хорошо",
+    )
+    confirm_no_words: tuple[str, ...] = (
+        "нет", "отмена", "отмени", "не надо", "не нужно", "стоп",
+    )
+
     @classmethod
     def load(cls, *, debug: bool = False, require_wake: bool = True,
              whisper_model_name: str = "small") -> "Config":

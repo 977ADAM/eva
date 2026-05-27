@@ -17,6 +17,9 @@ def test_load_uses_defaults_when_env_unset(monkeypatch):
     assert cfg.eva_dir == Path.home() / "eva"
     assert cfg.piper_bin == Path.home() / "eva" / "piper" / "piper"
     assert cfg.conversation_timeout_sec == 60.0
+    assert "firefox" in cfg.safe_command_prefixes
+    assert "да" in cfg.confirm_yes_words
+    assert "нет" in cfg.confirm_no_words
 
 
 def test_load_raises_when_api_key_missing(monkeypatch):
