@@ -6,6 +6,7 @@ from eva.audio import AudioCapture, SpeechSegmenter
 from eva.brain import Brain
 from eva.config import Config
 from eva.executor import ShellExecutor
+from eva.safety import SafetyGate
 from eva.stt import Transcriber
 from eva.tts import Synthesizer
 
@@ -14,15 +15,16 @@ log = logging.getLogger(__name__)
 
 class Assistant:
     """Главный оркестратор. Связывает все компоненты, держит флаги сессии
-    (`sleeping`, `running`, `conversation_until`) и реализует логику
-    wake/sleep/exit слов плюс разговорный режим.
+    (`sleeping`, `running`, `conversation_until`, `pending_command`) и
+    реализует логику wake/sleep/exit слов, разговорный режим и подтверждение
+    опасных команд.
 
     `run()` крутит главный цикл: получает utterance из segmenter,
     транскрибирует, прогоняет через `handle_text()`.
 
     `handle_text()` — отдельный метод для unit-тестирования логики
     без аудио-потока. Источник времени `time_source` инжектится для
-    детерминистских тестов сессии (в проде — `time.monotonic`)."""
+    детерминистских тестов (в проде — `time.monotonic`)."""
 
     def __init__(self, *, config: Config, capture: AudioCapture,
                  segmenter: SpeechSegmenter, transcriber: Transcriber,
@@ -36,11 +38,14 @@ class Assistant:
         self.synthesizer = synthesizer
         self.brain = brain
         self.executor = executor
+        self._gate = SafetyGate(config.safe_command_prefixes)
         self.sleeping = False
         self.running = True
         # Разговорный режим: timestamp монотонного времени, до которого
         # сессия активна. None — сессии нет.
         self.conversation_until: float | None = None
+        # Команда, ожидающая голосового подтверждения. None — нет pending.
+        self.pending_command: str | None = None
         self._time_source = time_source
         self._conversation_timeout = config.conversation_timeout_sec
 
@@ -73,6 +78,7 @@ class Assistant:
         if not text:
             return
 
+        # 1. Exit — высший приоритет, любое состояние
         if any(w in text for w in self._cfg.exit_words):
             self.synthesizer.say("Выключаюсь. Пока!")
             # stop() и флаг и сегментер останавливает — иначе main loop
@@ -80,21 +86,46 @@ class Assistant:
             self.stop()
             return
 
+        # 2. Sleep — отменяет pending перед тем как уйти в молчание
         if not self.sleeping and any(w in text for w in self._cfg.sleep_words):
             self.synthesizer.say(
                 "Молчу. Скажи 'Ева, проснись' когда понадоблюсь."
             )
+            self.pending_command = None
             self.sleeping = True
             return
 
+        # 3. Wake-again — выходим из sleep
         if self.sleeping and any(w in text for w in self._cfg.wake_again_words):
             self.synthesizer.say("Я снова с тобой.")
             self.sleeping = False
             return
 
+        # 4. В sleep — всё ниже игнорируется
         if self.sleeping:
             return
 
+        # 5. Если сессия истекла — pending тоже мёртв
+        if (self.pending_command is not None
+                and not self._conversation_active()):
+            self.pending_command = None
+
+        # 6. Если есть pending — текущая реплика ТОЛЬКО ответ на подтверждение.
+        #    Не отправляется в Brain. Безопасный дефолт: если непонятно — нет.
+        if self.pending_command is not None:
+            has_no = any(w in text for w in self._cfg.confirm_no_words)
+            has_yes = any(w in text for w in self._cfg.confirm_yes_words)
+            cmd = self.pending_command
+            self.pending_command = None
+            if has_yes and not has_no:
+                self.synthesizer.say("Хорошо.")
+                self.executor.run(cmd)
+            else:
+                # Явный no, или непонятно, или «да, отмени» — отменяем
+                self.synthesizer.say("Отменено.")
+            return
+
+        # 7. Обычный путь: wake-word или активная сессия
         has_wake = any(w in text for w in self._cfg.wake_words)
         in_session = self._conversation_active()
 
@@ -137,4 +168,9 @@ class Assistant:
             if delta.done and delta.command:
                 command_to_run = delta.command
         if command_to_run:
-            self.executor.run(command_to_run)
+            if self._gate.is_safe(command_to_run):
+                self.executor.run(command_to_run)
+            else:
+                # Опасная команда — запоминаем, ждём голосового «да/нет»
+                self.pending_command = command_to_run
+                self.synthesizer.say("Подтверди.")
