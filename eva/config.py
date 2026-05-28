@@ -9,6 +9,7 @@ class Config:
     eva_dir: Path
     piper_bin: Path
     voice_model: Path
+    memory_path: Path
 
     # LLM
     deepseek_api_key: str
@@ -79,6 +80,7 @@ class Config:
             eva_dir=eva_dir,
             piper_bin=eva_dir / "piper" / "piper",
             voice_model=eva_dir / "voices" / "ru_RU-irina-medium.onnx",
+            memory_path=eva_dir / "memory.json",
             deepseek_api_key=api_key,
             whisper_model_name=whisper_model_name,
             debug=debug,

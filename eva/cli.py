@@ -35,6 +35,7 @@ def main() -> int:
     from eva.brain import Brain
     from eva.config import Config
     from eva.executor import ShellExecutor
+    from eva.memory import Memory
     from eva.stt import Transcriber
     from eva.tts import Synthesizer
 
@@ -73,7 +74,8 @@ def main() -> int:
         piper_bin=config.piper_bin,
         voice_model=config.voice_model,
     )
-    brain = Brain(config)
+    memory = Memory(config.memory_path)
+    brain = Brain(config, memory)
     executor = ShellExecutor()
 
     assistant = Assistant(

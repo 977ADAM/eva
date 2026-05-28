@@ -24,6 +24,7 @@ def make_config(**overrides):
         eva_dir=Path("/tmp"),
         piper_bin=Path("/tmp"),
         voice_model=Path("/tmp"),
+        memory_path=Path("/tmp"),
         deepseek_api_key="x",
     )
     base.update(overrides)
