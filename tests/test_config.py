@@ -16,6 +16,7 @@ def test_load_uses_defaults_when_env_unset(monkeypatch):
     assert "ева" in cfg.wake_words
     assert cfg.eva_dir == Path.home() / "eva"
     assert cfg.piper_bin == Path.home() / "eva" / "piper" / "piper"
+    assert cfg.memory_path == Path.home() / "eva" / "memory.json"
     assert cfg.conversation_timeout_sec == 60.0
     assert "firefox" in cfg.safe_command_prefixes
     assert "да" in cfg.confirm_yes_words
@@ -33,6 +34,7 @@ def test_config_is_frozen():
         eva_dir=Path("/tmp"),
         piper_bin=Path("/tmp/p"),
         voice_model=Path("/tmp/v"),
+        memory_path=Path("/tmp/m"),
         deepseek_api_key="x",
     )
     with pytest.raises(Exception):
