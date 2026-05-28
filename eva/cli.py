@@ -32,6 +32,9 @@ def main() -> int:
     # Импорты тяжёлых модулей внутри main() чтобы --help/--version были быстрыми
     from eva.assistant import Assistant
     from eva.audio import AudioCapture, SpeechSegmenter, make_silero_iterator
+    from rich.console import Console
+
+    from eva.banner import build_panel
     from eva.brain import Brain
     from eva.config import Config
     from eva.executor import ShellExecutor
@@ -49,34 +52,37 @@ def main() -> int:
         print(f"ОШИБКА: {exc}", file=sys.stderr)
         return 1
 
-    log.info("Загружаю компоненты...")
-    capture = AudioCapture(
-        sample_rate=config.sample_rate,
-        chunk_samples=config.chunk_samples,
-    )
-    vad_iterator = make_silero_iterator(
-        threshold=config.vad_threshold,
-        min_silence_ms=config.vad_min_silence_ms,
-        speech_pad_ms=config.vad_speech_pad_ms,
-        sample_rate=config.sample_rate,
-    )
-    segmenter = SpeechSegmenter(
-        capture, vad_iterator,
-        min_speech_ms=config.vad_min_speech_ms,
-        sample_rate=config.sample_rate,
-    )
-    transcriber = Transcriber(
-        model_name=config.whisper_model_name,
-        compute_type=config.whisper_compute_type,
-        initial_prompt=config.whisper_initial_prompt,
-    )
-    synthesizer = Synthesizer(
-        piper_bin=config.piper_bin,
-        voice_model=config.voice_model,
-    )
-    memory = Memory(config.memory_path)
-    brain = Brain(config, memory)
-    executor = ShellExecutor()
+    console = Console()
+    with console.status("Загружаю Еву…", spinner="dots"):
+        capture = AudioCapture(
+            sample_rate=config.sample_rate,
+            chunk_samples=config.chunk_samples,
+        )
+        vad_iterator = make_silero_iterator(
+            threshold=config.vad_threshold,
+            min_silence_ms=config.vad_min_silence_ms,
+            speech_pad_ms=config.vad_speech_pad_ms,
+            sample_rate=config.sample_rate,
+        )
+        segmenter = SpeechSegmenter(
+            capture, vad_iterator,
+            min_speech_ms=config.vad_min_speech_ms,
+            sample_rate=config.sample_rate,
+        )
+        transcriber = Transcriber(
+            model_name=config.whisper_model_name,
+            compute_type=config.whisper_compute_type,
+            initial_prompt=config.whisper_initial_prompt,
+        )
+        synthesizer = Synthesizer(
+            piper_bin=config.piper_bin,
+            voice_model=config.voice_model,
+        )
+        memory = Memory(config.memory_path)
+        brain = Brain(config, memory)
+        executor = ShellExecutor()
+
+    console.print(build_panel(config, memory, __version__))
 
     assistant = Assistant(
         config=config, capture=capture, segmenter=segmenter,
